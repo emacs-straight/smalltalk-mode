@@ -51,7 +51,7 @@
 (defvar smalltalk-keyword-regexp (concat smalltalk-name-regexp ":")
   "A regular expression that matches a Smalltalk keyword.")
 
-(defvar smalltalk-name-chars "[:alnum:]"
+(defvar smalltalk-name-chars "[:alnum:]_"
   "The collection of character that can compose a Smalltalk identifier.")
 
 (defvar smalltalk-whitespace " \t\n\f")
@@ -60,7 +60,7 @@
   "'Tab size'; used for simple indentation alignment."
   :type 'integer)
 
-;; ---[ Syntax Table ]------------------------------------------------
+;;;; ---[ Syntax Table ]------------------------------------------------
 
 ;; This may very well be a bug, but certin chars like ?+ are set to be
 ;; punctuation, when in fact one might think of them as words (that
@@ -125,12 +125,12 @@
     table)
   "Syntax table used by Smalltalk mode.")
 
-;; ---[ Abbrev table ]------------------------------------------------
+;;;; ---[ Abbrev table ]------------------------------------------------
 
 (define-abbrev-table 'smalltalk-mode-abbrev-table ()
   "Abbrev table in use in `smalltalk-mode' buffers.")
 
-;; ---[ Keymap ]------------------------------------------------------
+;;;; ---[ Keymap ]------------------------------------------------------
 
 (defvar smalltalk-template-map
   (let ((keymap (make-sparse-keymap)))
@@ -177,7 +177,8 @@
     keymap)
   "Keymap for Smalltalk mode.")
 
-(defconst smalltalk-binsel "\\([-+*/~,<>=&?]\\{1,2\\}\\|:=\\|||\\)"
+;; FIXME: Why is `||' in there?
+(defconst smalltalk-binsel "[-+*/~,<>=&?]\\{1,2\\}\\|\\(:=\\)\\|||"
   "Smalltalk binary selectors.")
 
 (defconst smalltalk-font-lock-keywords
@@ -207,6 +208,8 @@
 (defvar smalltalk-last-category ""
   "Category of last method.")
 
+;;;; ---[ Syntax propertize ]-------------------------------------------
+
 (defmacro smalltalk--when-fboundp (sym exp)
   (declare (indent 1) (debug (symbolp form)))
   (if (fboundp sym)
@@ -220,9 +223,140 @@
     (syntax-propertize-rules
      ;; $ is marked as escaping because it can escape a ' or a " when
      ;; used for a character literal, but not when used within strings.
-     ("\\$" (0 (if (nth 8 (syntax-ppss)) (string-to-syntax ".")))))))
+     ("\\(\\$\\)[][(){}'\")]"
+      (1 (if (nth 8 (syntax-ppss)) (string-to-syntax ".")))))))
 
-;; ---[ Interactive functions ]---------------------------------------
+;;;; ---[ SMIE support ]------------------------------------------------
+
+;; FIXME: This is more or less usable when indenting code in the body of
+;; methods, but it gets seriously confused when it comes to understanding
+;; class and method definitions (i.e. top-level elements).
+
+(defvar smalltalk-use-smie nil
+  "Whether to use SMIE for indentation and navigation.
+The SMIE support is currently experimental work-in-progress.")
+
+(require 'smie nil t)
+
+(defvar smalltalk--smie-grammar
+  ;; The "bang syntax" is described at
+  ;; https://www.gnu.org/software/smalltalk/manual/html_node/The-syntax.html
+  ;; as:
+  ;;
+  ;;     methods: ``!'' id [``class''] ``methodsFor:'' string
+  ;;              ``!'' [method ``!'']+ ``!''
+  ;;
+  ;; The basic problem is that I can't find a clear description of the syntax
+  ;; of class and method declarations (other than the bang-style above),
+  ;; so I'm not sure how to handle those.
+  ;; In the mean time, there are several other problems:
+  ;; - `|' corresponds to both `let' and `in' in `let <vars> in <exp>' so
+  ;;   we need to try and distinguish the two cases
+  ;;   (done in smalltalk--smie-|-kind).
+  ;; - `<' and `>' are selectors and but are also used for meta info of the
+  ;;   form <foo: 'bar'>.
+  (when (fboundp 'smie-bnf->prec2)
+    (smie-prec2->grammar
+     (smie-bnf->prec2
+      '((id)
+        (blockbody (id "|" exp)         ;Block with args
+                   (exp))               ;Block without args
+        (exp ("|-open" id "|" exp)      ;Local var declaration
+             ("[" blockbody "]")        ;Block
+             ("^" exp)                  ;Return
+             (exp "bin-sel" exp)
+             (exp "kw-sel" exp)
+             ("<" id ">")              ;Meta info like `comment' and `category'
+             (exp "!" exp)             ;GNU Smalltalk extension
+             (id ":=" exp)             ;Assignment
+             (exp ";" exp)             ;Message cascading
+             (exp "." exp)))           ;Separate instructions
+      '((assoc "!") (assoc "|") (assoc ".") (noassoc ":=" "^")
+        (assoc ";") (assoc "kw-sel" "bin-sel"))))))
+
+(defconst smalltalk--smie-id-re
+  (concat "\\(:\\)?" smalltalk-name-regexp "\\(:\\)?"))
+
+(defun smalltalk--smie-|-kind ()
+  ;; FIXME: Probably too naive a heuristic.
+  (if (save-excursion
+        (forward-comment (- (point)))
+        (memq (char-syntax (preceding-char)) '(?w ?_)))
+      "|"
+    "|-open"))
+
+(defun smalltalk--smie-forward-token ()
+  (forward-comment (point-max))
+  (cond
+   ((looking-at smalltalk--smie-id-re)
+    (goto-char (match-end 0))
+    (cond
+     ((match-beginning 2) "kw-sel")
+     (t (match-string 0))))
+   ((looking-at smalltalk-binsel)
+    (goto-char (match-end 0))
+    (or (match-string 1) "bin-sel"))
+   ((looking-at "|")
+    (let ((pos (match-end 0)))
+      (prog1 (smalltalk--smie-|-kind)
+        (goto-char pos))))
+   ((looking-at "[;.!]")
+    (goto-char (match-end 0))
+    (match-string 0))
+   (t (smie-default-forward-token))))
+
+(defun smalltalk--smie-backward-token ()
+  (forward-comment (- (point)))
+  (cond
+   ((and (eq (char-before) ?:)
+         (memq (char-syntax (or (char-before (1- (point))) ?\ )) '(?w ?_)))
+    (forward-char -1)
+    (skip-chars-backward smalltalk-name-chars)
+    (skip-chars-forward "0-9_")         ;Maybe we skipped too much!
+    "kw-sel")
+   ((memq (char-syntax (preceding-char)) '(?w ?_))
+    (let ((end (point)))
+      (skip-chars-backward smalltalk-name-chars)
+      (skip-chars-forward "0-9_")       ;Maybe we skipped too much!
+      (buffer-substring (point) end)))
+   ((looking-back smalltalk--smie-id-re (- (point) 2) t)
+    (goto-char (match-beginning 0))
+    (or (match-string 1) "bin-sel"))
+   ((eq ?| (char-before))
+    (forward-char -1)
+    (smalltalk--smie-|-kind))
+   ((memql (char-before) '(?\; ?\. ?!))
+    (forward-char -1)
+    (buffer-substring (point) (1+ (point))))
+   (t (smie-default-backward-token))))
+
+(defun smalltalk--smie-rules (method arg)
+  (pcase (cons method arg)
+    (`(:elem . basic) smalltalk-indent-amount)
+    (`(:after . "|") 0)
+    (`(:before . "kw-sel")
+     (let ((pos (point))
+           (kw-len (and (looking-at smalltalk--smie-id-re)
+                        (string-width (match-string 0)))))
+       (when kw-len
+         (save-excursion
+           (goto-char (match-end 0))
+           (let ((parent (smie-backward-sexp 'halfsexp)))
+             (pcase (nth 2 parent)
+              (`"kw-sel"
+               (goto-char (nth 1 parent))
+               (let ((parent-len (and (looking-at smalltalk--smie-id-re)
+                                      (string-width (match-string 0)))))
+                 (- parent-len kw-len)))
+              ("!" 0)
+              (`"bin-sel" 0)            ;FIXME: Not sure what to do here.
+              (_
+               (when (< (point) pos)
+                 (let ((c (current-column)))
+                   `(column . ,(+ c smalltalk-indent-amount)))))))))))
+    ))
+
+;;;; ---[ Interactive functions ]---------------------------------------
 
 ;;;###autoload
 (define-derived-mode smalltalk-mode prog-mode "Smalltalk"
@@ -241,6 +375,12 @@ Commands:
   (set (make-local-variable 'paragraph-ignore-fill-prefix) t)
   (set (make-local-variable 'indent-line-function)
        #'smalltalk-indent-line)
+
+  (when (and smalltalk-use-smie (fboundp 'smie-setup))
+    (smie-setup smalltalk--smie-grammar #'smalltalk--smie-rules
+                :forward-token  #'smalltalk--smie-forward-token
+                :backward-token #'smalltalk--smie-backward-token))
+
   (set (make-local-variable 'require-final-newline) t)
   (set (make-local-variable 'comment-start) "\"")
   (set (make-local-variable 'comment-end) "\"")
@@ -554,7 +694,7 @@ expressions."
    (smalltalk-maybe-read-class with-class)
    (read-string "Selector: ")))
 
-;; ---[ Non-interactive functions ]-----------------------------------
+;;;; ---[ Non-interactive functions ]-----------------------------------
 
 ;; This is used by indent-for-comment
 ;; to decide how much to indent a comment in Smalltalk code
