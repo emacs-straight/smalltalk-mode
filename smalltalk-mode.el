@@ -218,13 +218,41 @@
     ;; in case we use the compiled file on a newer Emacs.
     `(eval '(if (fboundp ',sym) ,exp))))
 
+(defun smalltalk--pragma-start-p (pos)
+  "Return non-nil if the `<' at point starts a pragma."
+  ;; I think in practice it's not disastrous if we fail to mark some pragmas,
+  ;; whereas if we mistakenly mark a binary `<' as an open-paren, this
+  ;; can throw things off pretty badly, so when in doubt presume it's just
+  ;; a binary `<'.
+  (save-excursion
+    (goto-char pos)
+    (forward-comment (- (point)))
+    (pcase (char-before)
+      ((or `nil `?\[) t)
+      (`?> (and (< (point) pos)      ;; >< is a binary selector
+                (equal (syntax-after (1- (point)))
+                       (string-to-syntax ")<")))))))
+
+
+(defun smalltalk--pragma-end-p (pos)
+  "Return non-nil if the `>' at point ends a pragma."
+  (save-excursion
+    (let ((ppss (syntax-ppss pos)))
+      (and (nth 1 ppss)
+           (eq ?< (char-after (nth 1 ppss)))))))
+
 (defconst smalltalk--syntax-propertize
   (smalltalk--when-fboundp syntax-propertize-rules
     (syntax-propertize-rules
      ;; $ is marked as escaping because it can escape a ' or a " when
      ;; used for a character literal, but not when used within strings.
      ("\\(\\$\\)[][(){}'\")]"
-      (1 (if (nth 8 (syntax-ppss)) (string-to-syntax ".")))))))
+      (1 (if (nth 8 (syntax-ppss)) (string-to-syntax "."))))
+     ("<" (0 (if (smalltalk--pragma-start-p (match-beginning 0))
+                 (string-to-syntax "(>"))))
+     (">" (0 (if (smalltalk--pragma-end-p (match-beginning 0))
+                 (string-to-syntax ")<"))))
+     )))
 
 ;;;; ---[ SMIE support ]------------------------------------------------
 
@@ -258,7 +286,7 @@ The SMIE support is currently experimental work-in-progress.")
   (when (fboundp 'smie-bnf->prec2)
     (smie-prec2->grammar
      (smie-bnf->prec2
-      '((id)
+      '((id ("id"))
         (blockbody (id "|" exp)         ;Block with args
                    (exp))               ;Block without args
         (exp ("|-open" id "|" exp)      ;Local var declaration
@@ -266,6 +294,7 @@ The SMIE support is currently experimental work-in-progress.")
              ("^" exp)                  ;Return
              (exp "bin-sel" exp)
              (exp "kw-sel" exp)
+             (id)
              ("<" id ">")              ;Meta info like `comment' and `category'
              (exp "!" exp)             ;GNU Smalltalk extension
              (id ":=" exp)             ;Assignment
@@ -275,7 +304,17 @@ The SMIE support is currently experimental work-in-progress.")
         (assoc ";") (assoc "kw-sel" "bin-sel"))))))
 
 (defconst smalltalk--smie-id-re
-  (concat "\\(:\\)?" smalltalk-name-regexp "\\(:\\)?"))
+  (concat "\\(:\\)?" smalltalk-name-regexp
+          "\\(?:\\." smalltalk-name-regexp "\\)*"
+          "\\(:\\)?"))
+
+(defconst smalltalk--smie-symbol-re
+  (concat "#\\(?:" smalltalk-binsel
+          "\\|\\(?:"
+          smalltalk-name-regexp
+          "\\(?:\\(?::" smalltalk-name-regexp "\\)*:"
+          "\\|\\(?:\\." smalltalk-name-regexp "\\)*"
+          "\\)\\)\\)"))
 
 (defun smalltalk--smie-|-kind ()
   ;; FIXME: Probably too naive a heuristic.
@@ -288,11 +327,14 @@ The SMIE support is currently experimental work-in-progress.")
 (defun smalltalk--smie-forward-token ()
   (forward-comment (point-max))
   (cond
+   ((looking-at "\\s(\\|\\s)") "")
+   ;; Symbol literals are easy to lex when going forward.
+   ((looking-at smalltalk--smie-symbol-re) "lit-symbol")
    ((looking-at smalltalk--smie-id-re)
     (goto-char (match-end 0))
     (cond
      ((match-beginning 2) "kw-sel")
-     (t (match-string 0))))
+     (t "id")))
    ((looking-at smalltalk-binsel)
     (goto-char (match-end 0))
     (or (match-string 1) "bin-sel"))
@@ -300,7 +342,7 @@ The SMIE support is currently experimental work-in-progress.")
     (let ((pos (match-end 0)))
       (prog1 (smalltalk--smie-|-kind)
         (goto-char pos))))
-   ((looking-at "[;.!]")
+   ((looking-at "[;.!^]")
     (goto-char (match-end 0))
     (match-string 0))
    (t (smie-default-forward-token))))
@@ -308,32 +350,101 @@ The SMIE support is currently experimental work-in-progress.")
 (defun smalltalk--smie-backward-token ()
   (forward-comment (- (point)))
   (cond
+   ((looking-back "\\s(\\|\\s)" (1- (point))) "")
    ((and (eq (char-before) ?:)
          (memq (char-syntax (or (char-before (1- (point))) ?\ )) '(?w ?_)))
     (forward-char -1)
-    (skip-chars-backward smalltalk-name-chars)
-    (skip-chars-forward "0-9_")         ;Maybe we skipped too much!
-    "kw-sel")
+    (skip-chars-backward "[:alnum:]_")
+    (skip-chars-forward "0-9_.")         ;Maybe we skipped too much!
+    (if (and (eq (char-before) ?:)
+             (looking-back smalltalk--smie-symbol-re (line-beginning-position)))
+        (progn
+         (goto-char (match-beginning 0))
+         "lit-symbol")
+      "kw-sel"))
    ((memq (char-syntax (preceding-char)) '(?w ?_))
-    (let ((end (point)))
-      (skip-chars-backward smalltalk-name-chars)
-      (skip-chars-forward "0-9_")       ;Maybe we skipped too much!
-      (buffer-substring (point) end)))
-   ((looking-back smalltalk--smie-id-re (- (point) 2) t)
+    (skip-chars-backward "[:alnum:]_.")
+    (skip-chars-forward "0-9_.")       ;Maybe we skipped too much!
+    (if (eq (char-before) ?#)
+        (progn
+          (forward-char -1)
+          "lit-symbol")
+      "id"))
+   ((looking-back smalltalk-binsel (- (point) 2) t)
     (goto-char (match-beginning 0))
-    (or (match-string 1) "bin-sel"))
+    (if (eq (char-before) ?#)
+        (progn
+          (forward-char -1)
+          "lit-symbol")
+      (or (match-string 1) "bin-sel")))
    ((eq ?| (char-before))
     (forward-char -1)
     (smalltalk--smie-|-kind))
-   ((memql (char-before) '(?\; ?\. ?!))
+   ((memql (char-before) '(?\; ?\. ?^ ?!))
     (forward-char -1)
     (buffer-substring (point) (1+ (point))))
    (t (smie-default-backward-token))))
+
+(defun smalltalk--smie-exp-p ()
+  "Return non-nil if the thing at point is allowed to be an /expr/."
+  (save-excursion
+    (pcase (smalltalk--smie-backward-token)
+      ((or `"bin-sel" `"kw-sel" ":=" `"." `"^" `"!" "|")
+       t)
+      ((or `"|-open" `";" `"lit-symbol") nil)
+      ;;`""' means we bumped into a paren or a string.
+      (`"" (looking-back "\\s(" (1- (point))))
+      (_
+       ;; Presumably a plain `id', which is either a reference to a variable,
+       ;; or a unary selector.  In either case we can't be just an /expr/.
+       nil))))
+
+(defun smalltalk--smie-begin-def ()
+  (let ((pos nil))
+    (while (member (smalltalk--smie-backward-token)
+                   '("bin-sel" "kw-sel" "id"))
+      (setq pos (point)))
+    (goto-char pos)))
 
 (defun smalltalk--smie-rules (method arg)
   (pcase (cons method arg)
     (`(:elem . basic) smalltalk-indent-amount)
     (`(:after . "|") 0)
+    (`(:after . ">") 0)                 ;Indentation after a pragma.
+    (`(:after . ";")
+     (save-excursion
+       (forward-char 1)
+       (let ((parent (smie-backward-sexp 'halfsexp)))
+         ;; We do:
+         ;;
+	 ;;     ^self new file: aFile;
+         ;;           fooselector name: aString;
+         ;;           yourself
+         ;;
+         ;; but I wonder if we shouldn't instead try to do:
+         ;;
+	 ;;     ^self new file: aFile;
+         ;;               fooselector name: aString;
+         ;;                           yourself
+         (pcase (nth 2 parent)
+           (`";" nil)
+           (_ (forward-sexp 1) (forward-comment 1)
+              `(column . ,(current-column)))))))
+    ((and `(:before . ,(or `"kw-sel" `"bin-sel" `"id"))
+          (guard (and (smie-rule-bolp)
+                      (save-excursion
+                        (forward-comment (- (point)))
+                        (when (eq (char-before) ?\])
+                          (forward-sexp -1)
+                          (not (smalltalk--smie-exp-p)))))))
+     ;; Looks like a definition following another.
+     ;; FIXME: While this seems to indent class/method definitions acceptably,
+     ;; the underlying parsing of them is still wrong, as visible when
+     ;; trying to navigate with sexp movement commands :-(
+     (save-excursion
+       (forward-sexp -1)
+       (smalltalk--smie-begin-def)
+       `(column . ,(current-column))))
     (`(:before . "kw-sel")
      (let ((pos (point))
            (kw-len (and (looking-at smalltalk--smie-id-re)
@@ -354,6 +465,15 @@ The SMIE support is currently experimental work-in-progress.")
                (when (< (point) pos)
                  (let ((c (current-column)))
                    `(column . ,(+ c smalltalk-indent-amount)))))))))))
+    (`(:before . "[")
+     (if (smalltalk--smie-exp-p)
+         ;; Just a block.
+         nil
+       ;; We're not a block, so presumably some class/method definition.
+       ;; Find the beginning of that definition.
+       (save-excursion
+         (smalltalk--smie-begin-def)
+         `(column . ,(current-column)))))
     ))
 
 ;;;; ---[ Interactive functions ]---------------------------------------

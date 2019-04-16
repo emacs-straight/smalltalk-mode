@@ -61,11 +61,16 @@ Kernel.PackageContainer subclass: StarPackageFile [
     | name |
 
     StarPackageFile class >> on: aFile [
+        <category: ('file things')>
+        <other: (3 > 4)>
 	^self new file: aFile; yourself
     ]
 
     StarPackageFile class >> on: aFile name: aString [
-	^self new file: aFile; name: aString; yourself
+        <category: ('file things')>
+	^self new file: aFile;
+              name: aString;
+              yourself
     ]
 
     baseDirectoriesFor: aPackage [
