@@ -181,10 +181,22 @@
 (defconst smalltalk-binsel "[-+*/~,<>=&?]\\{1,2\\}\\|\\(:=\\)\\|||"
   "Smalltalk binary selectors.")
 
+(defun smalltalk--definition-pos-p ()
+  ;; In the non-bang style, we consider that a selector is in a "definition
+  ;; position" (i.e. is defined rather than used to call a method) if it
+  ;; follows a [...] that's not a block.
+  ;; FIXME: This fails to accept the *first* definition in a list.
+  (save-excursion
+    (forward-comment (- (point)))
+    (when (eq (char-before) ?\])
+      (forward-sexp -1)
+      (not (smalltalk--smie-exp-p)))))
+
 (defconst smalltalk-font-lock-keywords
   `((,(concat "#" smalltalk-name-regexp) (0 'font-lock-constant-face))
     (,(concat "\\<" smalltalk-name-regexp ":")
      (0 'font-lock-function-name-face))
+    ;; FIXME: This should not apply to the < and > of pragmas!
     (,smalltalk-binsel (0 'font-lock-function-name-face))
     ("\\^" (0 'font-lock-keyword-face))
     ("\\$." (0 'font-lock-string-face)) ;; Chars
@@ -256,9 +268,8 @@
 
 ;;;; ---[ SMIE support ]------------------------------------------------
 
-;; FIXME: This is more or less usable when indenting code in the body of
-;; methods, but it gets seriously confused when it comes to understanding
-;; class and method definitions (i.e. top-level elements).
+;; FIXME: This is still rough around the edges, but is fairly usable
+;; in non-bang-style files.  About as good as the old indentation code now.
 
 (defvar smalltalk-use-smie nil
   "Whether to use SMIE for indentation and navigation.
@@ -355,7 +366,7 @@ The SMIE support is currently experimental work-in-progress.")
          (memq (char-syntax (or (char-before (1- (point))) ?\ )) '(?w ?_)))
     (forward-char -1)
     (skip-chars-backward "[:alnum:]_")
-    (skip-chars-forward "0-9_.")         ;Maybe we skipped too much!
+    ;; (skip-chars-forward "0-9_.")        ;Maybe we skipped too much!
     (if (and (eq (char-before) ?:)
              (looking-back smalltalk--smie-symbol-re (line-beginning-position)))
         (progn
@@ -364,7 +375,7 @@ The SMIE support is currently experimental work-in-progress.")
       "kw-sel"))
    ((memq (char-syntax (preceding-char)) '(?w ?_))
     (skip-chars-backward "[:alnum:]_.")
-    (skip-chars-forward "0-9_.")       ;Maybe we skipped too much!
+    ;; (skip-chars-forward "0-9_.")        ;Maybe we skipped too much!
     (if (eq (char-before) ?#)
         (progn
           (forward-char -1)
@@ -411,6 +422,7 @@ The SMIE support is currently experimental work-in-progress.")
     (`(:elem . basic) smalltalk-indent-amount)
     (`(:after . "|") 0)
     (`(:after . ">") 0)                 ;Indentation after a pragma.
+    (`(:after . ":=") smalltalk-indent-amount)
     (`(:after . ";")
      (save-excursion
        (forward-char 1)
@@ -432,11 +444,7 @@ The SMIE support is currently experimental work-in-progress.")
               `(column . ,(current-column)))))))
     ((and `(:before . ,(or `"kw-sel" `"bin-sel" `"id"))
           (guard (and (smie-rule-bolp)
-                      (save-excursion
-                        (forward-comment (- (point)))
-                        (when (eq (char-before) ?\])
-                          (forward-sexp -1)
-                          (not (smalltalk--smie-exp-p)))))))
+                      (smalltalk--definition-pos-p))))
      ;; Looks like a definition following another.
      ;; FIXME: While this seems to indent class/method definitions acceptably,
      ;; the underlying parsing of them is still wrong, as visible when

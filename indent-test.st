@@ -67,13 +67,13 @@ Kernel.PackageContainer subclass: StarPackageFile [
     ]
 
     StarPackageFile class >> on: aFile name: aString [
-        <category: ('file things')>
+        <category: 'file things'>
 	^self new file: aFile;
               name: aString;
               yourself
     ]
 
-    baseDirectoriesFor: aPackage [
+    baseDirectoriesFor: aPackage foo: bar [
 	^self file zip
     ]
 
@@ -119,7 +119,8 @@ Kernel.PackageContainer subclass: PackageFile [
     ]
 
     srcdir: aString [
-	srcdir := aString
+	srcdir :=
+            aString
     ]
 
     baseDirectoriesFor: aPackage [
