@@ -16,15 +16,15 @@
 | GNU Smalltalk is free software; you can redistribute it and/or modify it
 | under the terms of the GNU General Public License as published by the Free
 | Software Foundation; either version 2, or (at your option) any later version.
-| 
+|
 | GNU Smalltalk is distributed in the hope that it will be useful, but WITHOUT
 | ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 | FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
 | details.
-| 
+|
 | You should have received a copy of the GNU General Public License along with
 | GNU Smalltalk; see the file COPYING.  If not, write to the Free Software
-| Foundation, 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  
+| Foundation, 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 |
  ======================================================================"
 
@@ -63,13 +63,13 @@ version
 cell
     ^self subclassResponsibility!
 
-head: headObject 
+head: headObject
     ^self subclassResponsibility!
 
-head: headObject tail: tailObject 
+head: headObject tail: tailObject
     ^self subclassResponsibility!
 
-list: anArray 
+list: anArray
     "LispCons list: #(1 2 3 4)"
 
     | size list |
@@ -82,7 +82,7 @@ list: anArray
 			tail: list].
     ^list!
 
-new: anInteger 
+new: anInteger
     "LispCons new: 5"
 
     | newList |
@@ -93,22 +93,22 @@ new: anInteger
 null
     ^self subclassResponsibility!
 
-with: anObject 
+with: anObject
     "LispCons with: 1"
 
     ^self head: anObject!
 
-with: firstObject with: secondObject 
+with: firstObject with: secondObject
     "LispCons with: 1 with: 2"
 
     ^self head: firstObject tail: (self with: secondObject)!
 
-with: firstObject with: secondObject with: thirdObject 
+with: firstObject with: secondObject with: thirdObject
     "LispCons with: 1 with: 2 with: 3"
 
     ^self head: firstObject tail: (self with: secondObject with: thirdObject)!
 
-with: firstObject with: secondObject with: thirdObject with: fourthObject 
+with: firstObject with: secondObject with: thirdObject with: fourthObject
     "LispCons with: 1 with: 2 with: 3 with: 4"
 
     ^self head: firstObject tail: (self
@@ -118,7 +118,7 @@ with: firstObject with: secondObject with: thirdObject with: fourthObject
 
 !LispList methodsFor: 'accessing'!
 
-at: indexInteger put: anObject 
+at: indexInteger put: anObject
     ^self subscriptOutOfBoundsError: indexInteger!
 
 size
@@ -129,7 +129,7 @@ size
 
 !LispList methodsFor: 'private'!
 
-subscriptOutOfBoundsError: index 
+subscriptOutOfBoundsError: index
     ^self error: 'subscript out of bounds: ' , index printString! !
 
 !LispList methodsFor: 'testing'!
@@ -248,13 +248,13 @@ example7
 cell
     ^super new head: self null tail: self null!
 
-head: headObject 
+head: headObject
     ^super new head: headObject tail: self null!
 
-head: headObject tail: tailObject 
+head: headObject tail: tailObject
     ^super new head: headObject tail: tailObject!
 
-list: anArray 
+list: anArray
     | size list |
     size := anArray size.
     list := self null.
@@ -265,7 +265,7 @@ list: anArray
 			tail: list].
     ^list!
 
-loadFrom: aStream 
+loadFrom: aStream
     "by nishis, 1998/04/19 07:51"
 
     | list |
