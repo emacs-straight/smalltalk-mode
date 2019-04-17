@@ -327,8 +327,11 @@ The SMIE support is currently experimental work-in-progress.")
           "\\|\\(?:\\." smalltalk-name-regexp "\\)*"
           "\\)\\)\\)"))
 
+(defconst smalltalk--smie-number-re
+  "\\(?:[0-9]+r\\)?-?[0-9][0-9.]*\\(?:[deqs]-?[0-9]+\\)?")
+
 (defun smalltalk--smie-|-kind ()
-  ;; FIXME: Probably too naive a heuristic.
+  ;; FIXME: `|' can also be a binary-selector!
   (if (save-excursion
         (forward-comment (- (point)))
         (memq (char-syntax (preceding-char)) '(?w ?_)))
@@ -340,7 +343,10 @@ The SMIE support is currently experimental work-in-progress.")
   (cond
    ((looking-at "\\s(\\|\\s)") "")
    ;; Symbol literals are easy to lex when going forward.
-   ((looking-at smalltalk--smie-symbol-re) "lit-symbol")
+   ((looking-at smalltalk--smie-symbol-re)
+    (goto-char (match-end 0)) "lit-symbol")
+   ((looking-at smalltalk--smie-number-re)
+    (goto-char (match-end 0)) "lit-number")
    ((looking-at smalltalk--smie-id-re)
     (goto-char (match-end 0))
     (cond
@@ -376,11 +382,14 @@ The SMIE support is currently experimental work-in-progress.")
    ((memq (char-syntax (preceding-char)) '(?w ?_))
     (skip-chars-backward "[:alnum:]_.")
     ;; (skip-chars-forward "0-9_.")        ;Maybe we skipped too much!
-    (if (eq (char-before) ?#)
-        (progn
-          (forward-char -1)
-          "lit-symbol")
-      "id"))
+    (cond
+     ((eq (char-before) ?#)
+      (forward-char -1)
+      "lit-symbol")
+     ((eq (char-before) ?-)
+      (forward-char -1)
+      "lit-number")
+     (t "id")))
    ((looking-back smalltalk-binsel (- (point) 2) t)
     (goto-char (match-beginning 0))
     (if (eq (char-before) ?#)
@@ -402,7 +411,7 @@ The SMIE support is currently experimental work-in-progress.")
     (pcase (smalltalk--smie-backward-token)
       ((or `"bin-sel" `"kw-sel" ":=" `"." `"^" `"!" "|")
        t)
-      ((or `"|-open" `";" `"lit-symbol") nil)
+      ((or `"|-open" `";" `"lit-symbol" "lit-number") nil)
       ;;`""' means we bumped into a paren or a string.
       (`"" (looking-back "\\s(" (1- (point))))
       (_
