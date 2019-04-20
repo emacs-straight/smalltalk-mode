@@ -60,6 +60,10 @@
   "'Tab size'; used for simple indentation alignment."
   :type 'integer)
 
+(defcustom smalltalk-indent-align-colon nil
+  "If non-nil, try and align the `:' of keyword selectors."
+  :type 'boolean)
+
 ;;;; ---[ Syntax Table ]------------------------------------------------
 
 ;; This may very well be a bug, but certin chars like ?+ are set to be
@@ -264,6 +268,9 @@
                  (string-to-syntax "(>"))))
      (">" (0 (if (smalltalk--pragma-end-p (match-beginning 0))
                  (string-to-syntax ")<"))))
+     ;; FIXME: Ugly Hack!  Mark the newline typically placed
+     ;; after the method header as a separator in the "gst2-aka-bang" syntax.
+     ("![ \t\n]*\n[[:lower:]][[:alnum:]_:. \t]*\\(\n\\)" (1 "."))
      )))
 
 ;;;; ---[ SMIE support ]------------------------------------------------
@@ -310,8 +317,9 @@ The SMIE support is currently experimental work-in-progress.")
              (exp "!" exp)             ;GNU Smalltalk extension
              (id ":=" exp)             ;Assignment
              (exp ";" exp)             ;Message cascading
+             (exp "\n" exp)            ;Separator for bang method header
              (exp "." exp)))           ;Separate instructions
-      '((assoc "!") (assoc "|") (assoc ".") (noassoc ":=" "^")
+      '((assoc "!") (assoc "|") (assoc "." "\n") (noassoc ":=" "^")
         (assoc ";") (assoc "kw-sel" "bin-sel"))))))
 
 (defconst smalltalk--smie-id-re
@@ -432,6 +440,7 @@ The SMIE support is currently experimental work-in-progress.")
     (`(:after . "|") 0)
     (`(:after . ">") 0)                 ;Indentation after a pragma.
     (`(:after . ":=") smalltalk-indent-amount)
+    (`(:after . "\n") smalltalk-indent-amount) ;GST2 method header separator
     (`(:after . ";")
      (save-excursion
        (forward-char 1)
@@ -475,7 +484,9 @@ The SMIE support is currently experimental work-in-progress.")
                (goto-char (nth 1 parent))
                (let ((parent-len (and (looking-at smalltalk--smie-id-re)
                                       (string-width (match-string 0)))))
-                 (- parent-len kw-len)))
+                 (if smalltalk-indent-align-colon
+                     (- parent-len kw-len)
+                   0)))
               ("!" 0)
               (`"bin-sel" 0)            ;FIXME: Not sure what to do here.
               (_
