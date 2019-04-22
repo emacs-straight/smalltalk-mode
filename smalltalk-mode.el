@@ -39,6 +39,8 @@
 
 ;;; Code:
 
+(require 'smie nil t)                   ;Not indispensable (yet).
+
 ;; ===[ Variables and constants ]=====================================
 
 (defgroup smalltalk-mode ()
@@ -62,6 +64,11 @@
 
 (defcustom smalltalk-indent-align-colon nil
   "If non-nil, try and align the `:' of keyword selectors."
+  :type 'boolean)
+
+(defcustom smalltalk-use-smie (featurep 'smie)
+  "Whether to use SMIE for indentation and navigation.
+Requires Emacs≥23.3."
   :type 'boolean)
 
 ;;;; ---[ Syntax Table ]------------------------------------------------
@@ -149,14 +156,16 @@
     ;; (define-key keymap "\n" 	   'smalltalk-newline-and-indent)
     (define-key keymap "\C-c\C-a"   'smalltalk-begin-of-defun)
     (define-key keymap "\C-c\C-e"   'smalltalk-end-of-defun)
-    (define-key keymap "\C-c\C-f"   'smalltalk-forward-sexp)
-    (define-key keymap "\C-c\C-b"   'smalltalk-backward-sexp)
+    (unless smalltalk-use-smie
+      (define-key keymap "\C-c\C-f"   'smalltalk-forward-sexp)
+      (define-key keymap "\C-c\C-b"   'smalltalk-backward-sexp))
     (define-key keymap "\C-c\C-p"   'smalltalk-goto-previous-keyword)
     (define-key keymap "\C-c\C-n"   'smalltalk-goto-next-keyword)
     ;; the following three are deprecated
     (define-key keymap "\C-\M-a"   'smalltalk-begin-of-defun)
-    (define-key keymap "\C-\M-f"   'smalltalk-forward-sexp)
-    (define-key keymap "\C-\M-b"   'smalltalk-backward-sexp)
+    (unless smalltalk-use-smie
+      (define-key keymap "\C-\M-f"   'smalltalk-forward-sexp)
+      (define-key keymap "\C-\M-b"   'smalltalk-backward-sexp))
     ;; FIXME: Use post-self-insert-hook!
     (define-key keymap "!" 	   'smalltalk-bang)
     ;; FIXME: Use post-self-insert-hook!
@@ -185,16 +194,16 @@
 (defconst smalltalk-binsel "[-+*/~,<>=&?]\\{1,2\\}\\|\\(:=\\)\\|||"
   "Smalltalk binary selectors.")
 
-(defun smalltalk--definition-pos-p ()
-  ;; In the non-bang style, we consider that a selector is in a "definition
-  ;; position" (i.e. is defined rather than used to call a method) if it
-  ;; follows a [...] that's not a block.
-  ;; FIXME: This fails to accept the *first* definition in a list.
-  (save-excursion
-    (forward-comment (- (point)))
-    (when (eq (char-before) ?\])
-      (forward-sexp -1)
-      (not (smalltalk--smie-exp-p)))))
+;; (defun smalltalk--definition-pos-p ()
+;;   ;; In the non-bang style, we consider that a selector is in a "definition
+;;   ;; position" (i.e. is defined rather than used to call a method) if it
+;;   ;; follows a [...] that's not a block.
+;;   ;; FIXME: This fails to accept the *first* definition in a list.
+;;   (save-excursion
+;;     (forward-comment (- (point)))
+;;     (when (eq (char-before) ?\])
+;;       (forward-sexp -1)
+;;       (not (smalltalk--smie-exp-p)))))
 
 (defconst smalltalk-font-lock-keywords
   `((,(concat "#" smalltalk-name-regexp) (0 'font-lock-constant-face))
@@ -264,6 +273,10 @@
      ;; used for a character literal, but not when used within strings.
      ("\\(\\$\\)[][(){}'\")]"
       (1 (if (nth 8 (syntax-ppss)) (string-to-syntax "."))))
+     ;; A '' within a string is an escaped quote and not the end of a string
+     ;; and the beginning of another.
+     ("''" (0 (if (save-excursion (nth 3 (syntax-ppss (match-beginning 0))))
+                  (string-to-syntax "."))))
      ("<" (0 (if (smalltalk--pragma-start-p (match-beginning 0))
                  (string-to-syntax "(>"))))
      (">" (0 (if (smalltalk--pragma-end-p (match-beginning 0))
@@ -271,18 +284,23 @@
      ;; FIXME: Ugly Hack!  Mark the newline typically placed
      ;; after the method header as a separator in the "gst2-aka-bang" syntax.
      ("![ \t\n]*\n[[:lower:]][[:alnum:]_:. \t]*\\(\n\\)" (1 "."))
+     ;; Similarly to the previous one, mark the \n after the `]' closing
+     ;; a "scope".
+     ;; FIXME: This presumes there is a \n after the `]' and there's no comment
+     ;; or other funny business between the two.
+     ("][ \t]*\\(\n\\)"
+      (1 (save-excursion
+           (let ((ppss (syntax-ppss (match-beginning 0))))
+             (when (nth 1 ppss)
+               (goto-char (nth 1 ppss))
+               (unless (smalltalk--smie-exp-p)
+                 (string-to-syntax ".")))))))
      )))
 
 ;;;; ---[ SMIE support ]------------------------------------------------
 
 ;; FIXME: This is still rough around the edges, but is fairly usable
 ;; in non-bang-style files.  About as good as the old indentation code now.
-
-(defvar smalltalk-use-smie nil
-  "Whether to use SMIE for indentation and navigation.
-The SMIE support is currently experimental work-in-progress.")
-
-(require 'smie nil t)
 
 (defvar smalltalk--smie-grammar
   ;; The "bang syntax" is described at
@@ -304,7 +322,7 @@ The SMIE support is currently experimental work-in-progress.")
   (when (fboundp 'smie-bnf->prec2)
     (smie-prec2->grammar
      (smie-bnf->prec2
-      '((id ("id"))
+      '((id )                           ;("id")
         (blockbody (id "|" exp)         ;Block with args
                    (exp))               ;Block without args
         (exp ("|-open" id "|" exp)      ;Local var declaration
@@ -440,7 +458,8 @@ The SMIE support is currently experimental work-in-progress.")
     (`(:after . "|") 0)
     (`(:after . ">") 0)                 ;Indentation after a pragma.
     (`(:after . ":=") smalltalk-indent-amount)
-    (`(:after . "\n") smalltalk-indent-amount) ;GST2 method header separator
+    (`(:after . "\n") (if (smie-rule-parent-p "!") ;GST2 method header separator
+                          smalltalk-indent-amount))
     (`(:after . ";")
      (save-excursion
        (forward-char 1)
@@ -460,17 +479,17 @@ The SMIE support is currently experimental work-in-progress.")
            (`";" nil)
            (_ (forward-sexp 1) (forward-comment 1)
               `(column . ,(current-column)))))))
-    ((and `(:before . ,(or `"kw-sel" `"bin-sel" `"id"))
-          (guard (and (smie-rule-bolp)
-                      (smalltalk--definition-pos-p))))
-     ;; Looks like a definition following another.
-     ;; FIXME: While this seems to indent class/method definitions acceptably,
-     ;; the underlying parsing of them is still wrong, as visible when
-     ;; trying to navigate with sexp movement commands :-(
-     (save-excursion
-       (forward-sexp -1)
-       (smalltalk--smie-begin-def)
-       `(column . ,(current-column))))
+    ;; ((and `(:before . ,(or `"kw-sel" `"bin-sel" `"id"))
+    ;;       (guard (and (smie-rule-bolp)
+    ;;                   (smalltalk--definition-pos-p))))
+    ;;  ;; Looks like a definition following another.
+    ;;  ;; FIXME: While this seems to indent class/method definitions acceptably,
+    ;;  ;; the underlying parsing of them is still wrong, as visible when
+    ;;  ;; trying to navigate with sexp movement commands :-(
+    ;;  (save-excursion
+    ;;    (forward-sexp -1)
+    ;;    (smalltalk--smie-begin-def)
+    ;;    `(column . ,(current-column))))
     (`(:before . "kw-sel")
      (let ((pos (point))
            (kw-len (and (looking-at smalltalk--smie-id-re)
@@ -504,6 +523,12 @@ The SMIE support is currently experimental work-in-progress.")
          `(column . ,(current-column)))))
     ))
 
+;;;; ---[ Prettify-symbols ]--------------------------------------------
+
+(defvar smalltalk-prettify-symbols-alist
+  '(("^" . ?↑)
+    (":=" . ?←)))
+
 ;;;; ---[ Interactive functions ]---------------------------------------
 
 ;;;###autoload
@@ -529,6 +554,8 @@ Commands:
                 :forward-token  #'smalltalk--smie-forward-token
                 :backward-token #'smalltalk--smie-backward-token))
 
+  (set (make-local-variable 'prettify-symbols-alist)
+       smalltalk-prettify-symbols-alist)
   (set (make-local-variable 'require-final-newline) t)
   (set (make-local-variable 'comment-start) "\"")
   (set (make-local-variable 'comment-end) "\"")
