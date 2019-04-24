@@ -154,7 +154,9 @@ Requires Emacs≥23.3."
 (defvar smalltalk-mode-map
   (let ((keymap (make-sparse-keymap)))
     ;; (define-key keymap "\n" 	   'smalltalk-newline-and-indent)
+    ;; FIXME: Set `beginning-of-defun-function' instead!
     (define-key keymap "\C-c\C-a"   'smalltalk-begin-of-defun)
+    ;; FIXME: Set `end-of-defun-function' instead!
     (define-key keymap "\C-c\C-e"   'smalltalk-end-of-defun)
     (unless smalltalk-use-smie
       (define-key keymap "\C-c\C-f"   'smalltalk-forward-sexp)
@@ -162,14 +164,18 @@ Requires Emacs≥23.3."
     (define-key keymap "\C-c\C-p"   'smalltalk-goto-previous-keyword)
     (define-key keymap "\C-c\C-n"   'smalltalk-goto-next-keyword)
     ;; the following three are deprecated
+    ;; FIXME: Set `beginning-of-defun-function' instead!
     (define-key keymap "\C-\M-a"   'smalltalk-begin-of-defun)
     (unless smalltalk-use-smie
       (define-key keymap "\C-\M-f"   'smalltalk-forward-sexp)
       (define-key keymap "\C-\M-b"   'smalltalk-backward-sexp))
     ;; FIXME: Use post-self-insert-hook!
     (define-key keymap "!" 	   'smalltalk-bang)
-    ;; FIXME: Use post-self-insert-hook!
-    (define-key keymap ":"	   'smalltalk-colon)
+    ;; `electric-indent-local-mode' was added when we changed
+    ;; `electric-indent-mode' to be enabled by default, in which case we'll get
+    ;; the same result as `smalltalk-colon' via electric-indent-chars.
+    (unless (fboundp 'electric-indent-local-mode)
+      (define-key keymap ":"	   'smalltalk-colon))
     (define-key keymap "\C-ct"      smalltalk-template-map)
 
     ;; -----
@@ -180,6 +186,8 @@ Requires Emacs≥23.3."
     ;;   ‘<’, ‘>’, ‘:’ or ‘;’.  The other punctuation characters are
     ;;   reserved for minor modes, and ordinary letters are reserved for
     ;;   users.
+    ;; FIXME: The same problem affect the `C-c t' binding of
+    ;; `smalltalk-template-map'.
     (define-key keymap "\C-cd"     'smalltalk-doit)
     (define-key keymap "\C-cf"     'smalltalk-filein-buffer)
     (define-key keymap "\C-cm"     'gst)
@@ -548,6 +556,9 @@ Commands:
   (set (make-local-variable 'paragraph-ignore-fill-prefix) t)
   (set (make-local-variable 'indent-line-function)
        #'smalltalk-indent-line)
+  (when (boundp 'electric-indent-chars)
+    ;; Instead of `smalltalk-colon'.
+    (add-to-list 'electric-indent-chars ?\:))
 
   (when (and smalltalk-use-smie (fboundp 'smie-setup))
     (smie-setup smalltalk--smie-grammar #'smalltalk--smie-rules
