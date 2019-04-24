@@ -81,31 +81,9 @@ Requires Emacs≥23.3."
 
 (defvar smalltalk-mode-syntax-table
   (let ((table (make-syntax-table)))
-    ;; Make sure A-z0-9 are set to "w   " for completeness ;FIXME: Why bother?
-    (let ((c 0))
-      (setq c ?0)
-      (while (<= c ?9)
-	(setq c (1+ c))
-	(modify-syntax-entry c "w   " table))
-      (setq c ?A)
-      (while (<= c ?Z)
-	(setq c (1+ c))
-	(modify-syntax-entry c "w   " table))
-      (setq c ?a)
-      (while (<= c ?z)
-	(setq c (1+ c))
-	(modify-syntax-entry c "w   " table)))
-    ;; FIXME: The settings below seem to indicate a desire to treat
-    ;;
-    ;;     "/ ... \n
-    ;;
-    ;; as a comment, but it doesn't work.  I saw references to such
-    ;; comment syntax for Smalltalk/X but I don't know how widespread it is
-    ;; nor whether GNU Smalltalk should support it.
-    (modify-syntax-entry ?\n " >  " table) ; Comment (generic) ;FIXME!
     (modify-syntax-entry ?:  ".   " table) ; Symbol-char
     (modify-syntax-entry ?_  "_   " table) ; Symbol-char
-    (modify-syntax-entry ?\" "!1  " table) ; Comment (generic)
+    (modify-syntax-entry ?\" "!   " table) ; Comment (generic)
     (modify-syntax-entry ?'  "\"' " table) ; String
     (modify-syntax-entry ?#  "'   " table) ; Symbol or Array constant
     (modify-syntax-entry ?\( "()  " table) ; Grouping
@@ -125,7 +103,7 @@ Requires Emacs≥23.3."
     (modify-syntax-entry ?+  ".   " table) ; math
     (modify-syntax-entry ?-  ".   " table) ; math
     (modify-syntax-entry ?*  ".   " table) ; math
-    (modify-syntax-entry ?/  ".2  " table) ; math
+    (modify-syntax-entry ?/  ".   " table) ; math
     (modify-syntax-entry ?=  ".   " table) ; bool/assign
     (modify-syntax-entry ?%  ".   " table) ; valid selector
     (modify-syntax-entry ?&  ".   " table) ; boolean
@@ -153,6 +131,7 @@ Requires Emacs≥23.3."
 
 (defvar smalltalk-mode-map
   (let ((keymap (make-sparse-keymap)))
+    ;; the following six are deprecated, use C-M- ones
     ;; (define-key keymap "\n" 	   'smalltalk-newline-and-indent)
     ;; FIXME: Set `beginning-of-defun-function' instead!
     (define-key keymap "\C-c\C-a"   'smalltalk-begin-of-defun)
@@ -163,9 +142,11 @@ Requires Emacs≥23.3."
       (define-key keymap "\C-c\C-b"   'smalltalk-backward-sexp))
     (define-key keymap "\C-c\C-p"   'smalltalk-goto-previous-keyword)
     (define-key keymap "\C-c\C-n"   'smalltalk-goto-next-keyword)
-    ;; the following three are deprecated
+    ;; the following four are NOT deprecated
     ;; FIXME: Set `beginning-of-defun-function' instead!
     (define-key keymap "\C-\M-a"   'smalltalk-begin-of-defun)
+    ;; FIXME: Set `end-of-defun-function' instead!
+    (define-key keymap "\C-\M-e"   'smalltalk-end-of-defun)
     (unless smalltalk-use-smie
       (define-key keymap "\C-\M-f"   'smalltalk-forward-sexp)
       (define-key keymap "\C-\M-b"   'smalltalk-backward-sexp))
@@ -198,20 +179,9 @@ Requires Emacs≥23.3."
     keymap)
   "Keymap for Smalltalk mode.")
 
-;; FIXME: Why is `||' in there?
-(defconst smalltalk-binsel "[-+*/~,<>=&?]\\{1,2\\}\\|\\(:=\\)\\|||"
-  "Smalltalk binary selectors.")
-
-;; (defun smalltalk--definition-pos-p ()
-;;   ;; In the non-bang style, we consider that a selector is in a "definition
-;;   ;; position" (i.e. is defined rather than used to call a method) if it
-;;   ;; follows a [...] that's not a block.
-;;   ;; FIXME: This fails to accept the *first* definition in a list.
-;;   (save-excursion
-;;     (forward-comment (- (point)))
-;;     (when (eq (char-before) ?\])
-;;       (forward-sexp -1)
-;;       (not (smalltalk--smie-exp-p)))))
+(defconst smalltalk-binsel "[-+*/~,<>=|&?]\\{1,2\\}\\|\\(:=\\)"
+  "Smalltalk binary selectors.
+Also matches the assignment operator (in submatch 1).")
 
 (defconst smalltalk-font-lock-keywords
   `((,(concat "#" smalltalk-name-regexp) (0 'font-lock-constant-face))
@@ -219,9 +189,9 @@ Requires Emacs≥23.3."
      (0 'font-lock-function-name-face))
     ;; FIXME: This should not apply to the < and > of pragmas!
     (,smalltalk-binsel (0 'font-lock-function-name-face))
-    ("\\^" (0 'font-lock-keyword-face))
+    ("\\^" (0 'font-lock-builtin-face))
     ("\\$." (0 'font-lock-string-face)) ;; Chars
-    ("\\<[[:upper:]]\\sw*\\>" (0 'font-lock-type-face)))
+    ("\\<[[:upper:]][[:alnum:]_]*\\>" (0 'font-lock-type-face)))
   "Basic Smalltalk keywords font-locking.")
 
 (defconst smalltalk-font-lock-keywords-1
@@ -230,11 +200,9 @@ Requires Emacs≥23.3."
 
 (defconst smalltalk-font-lock-keywords-2
   (append smalltalk-font-lock-keywords-1
-	  `(("\\<\\(true\\|false\\|nil\\|self\\|super\\)\\>"
-	     . font-lock-builtin-face)
-	    (":[[:lower:]][[:alnum:]_]*" . font-lock-variable-name-face)
-	    (" |" . font-lock-type-face)
-	    ("<.*>" . font-lock-builtin-face)))
+	  `(("\\<\\(true\\|false\\|nil\\)\\>" . font-lock-constant-face)
+	    ("\\<\\(self\\|super\\)\\>" . font-lock-keyword-face)
+	    (":[[:lower:]][[:alnum:]_]*" . font-lock-variable-name-face)))
   
   "Level 2 Smalltalk font-locking keywords.")
 
@@ -487,17 +455,6 @@ Requires Emacs≥23.3."
            (`";" nil)
            (_ (forward-sexp 1) (forward-comment 1)
               `(column . ,(current-column)))))))
-    ;; ((and `(:before . ,(or `"kw-sel" `"bin-sel" `"id"))
-    ;;       (guard (and (smie-rule-bolp)
-    ;;                   (smalltalk--definition-pos-p))))
-    ;;  ;; Looks like a definition following another.
-    ;;  ;; FIXME: While this seems to indent class/method definitions acceptably,
-    ;;  ;; the underlying parsing of them is still wrong, as visible when
-    ;;  ;; trying to navigate with sexp movement commands :-(
-    ;;  (save-excursion
-    ;;    (forward-sexp -1)
-    ;;    (smalltalk--smie-begin-def)
-    ;;    `(column . ,(current-column))))
     (`(:before . "kw-sel")
      (let ((pos (point))
            (kw-len (and (looking-at smalltalk--smie-id-re)
@@ -523,7 +480,7 @@ Requires Emacs≥23.3."
     (`(:before . "[")
      (if (smalltalk--smie-exp-p)
          ;; Just a block.
-         nil
+         (if (smie-rule-hanging-p) (smie-rule-parent))
        ;; We're not a block, so presumably some class/method definition.
        ;; Find the beginning of that definition.
        (save-excursion
@@ -591,6 +548,11 @@ Commands:
   ;; tags
   (set (make-local-variable 'find-tag-default-function)
        #'smalltalk-find-message))
+
+;; For hideshow.
+;; Hideshow does not cope with comment-start and comment-end being the same
+;; so I change it to "= ... =" which seems to be the convention in GNU smalltalk
+(add-to-list 'hs-special-modes-alist '(smalltalk-mode "\\[" "\\]" "\"=" nil nil))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.st\\'" . smalltalk-mode))
