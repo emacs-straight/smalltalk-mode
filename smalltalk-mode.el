@@ -131,33 +131,31 @@ Requires Emacs≥23.3."
 
 (defvar smalltalk-mode-map
   (let ((keymap (make-sparse-keymap)))
-    ;; the following six are deprecated, use C-M- ones
-    ;; (define-key keymap "\n" 	   'smalltalk-newline-and-indent)
-    ;; FIXME: Set `beginning-of-defun-function' instead!
-    (define-key keymap "\C-c\C-a"   'smalltalk-begin-of-defun)
-    ;; FIXME: Set `end-of-defun-function' instead!
-    (define-key keymap "\C-c\C-e"   'smalltalk-end-of-defun)
+    ;; the following four are deprecated, use C-M- ones
     (unless smalltalk-use-smie
+      (define-key keymap "\C-c\C-a"   'smalltalk-begin-of-defun)
+      (define-key keymap "\C-c\C-e"   'smalltalk-end-of-defun)
       (define-key keymap "\C-c\C-f"   'smalltalk-forward-sexp)
       (define-key keymap "\C-c\C-b"   'smalltalk-backward-sexp))
+
     (define-key keymap "\C-c\C-p"   'smalltalk-goto-previous-keyword)
     (define-key keymap "\C-c\C-n"   'smalltalk-goto-next-keyword)
+    (define-key keymap "\C-c\C-t"      smalltalk-template-map)
     ;; the following four are NOT deprecated
     ;; FIXME: Set `beginning-of-defun-function' instead!
-    (define-key keymap "\C-\M-a"   'smalltalk-begin-of-defun)
     ;; FIXME: Set `end-of-defun-function' instead!
-    (define-key keymap "\C-\M-e"   'smalltalk-end-of-defun)
     (unless smalltalk-use-smie
+      (define-key keymap "\C-\M-a"   'smalltalk-begin-of-defun)
+      (define-key keymap "\C-\M-e"   'smalltalk-end-of-defun)
       (define-key keymap "\C-\M-f"   'smalltalk-forward-sexp)
       (define-key keymap "\C-\M-b"   'smalltalk-backward-sexp))
     ;; FIXME: Use post-self-insert-hook!
-    (define-key keymap "!" 	   'smalltalk-bang)
+    ;; (define-key keymap "!" 	   'smalltalk-bang)
     ;; `electric-indent-local-mode' was added when we changed
     ;; `electric-indent-mode' to be enabled by default, in which case we'll get
     ;; the same result as `smalltalk-colon' via electric-indent-chars.
     (unless (fboundp 'electric-indent-local-mode)
       (define-key keymap ":"	   'smalltalk-colon))
-    (define-key keymap "\C-ct"      smalltalk-template-map)
 
     ;; -----
 
@@ -167,8 +165,6 @@ Requires Emacs≥23.3."
     ;;   ‘<’, ‘>’, ‘:’ or ‘;’.  The other punctuation characters are
     ;;   reserved for minor modes, and ordinary letters are reserved for
     ;;   users.
-    ;; FIXME: The same problem affect the `C-c t' binding of
-    ;; `smalltalk-template-map'.
     (define-key keymap "\C-cd"     'smalltalk-doit)
     (define-key keymap "\C-cf"     'smalltalk-filein-buffer)
     (define-key keymap "\C-cm"     'gst)
@@ -272,6 +268,32 @@ Also matches the assignment operator (in submatch 1).")
                (unless (smalltalk--smie-exp-p)
                  (string-to-syntax ".")))))))
      )))
+
+(defun smalltalk-goto-defun-start ()
+  "Move backward to the beginning of a defun.
+
+If search is successful, return t; point ends up at the beginning
+of the line where the search succeeded.  Otherwise, return nil.
+FIXME: This version assumes gst3 syntax"
+  (interactive)
+  (while (progn
+	   (skip-chars-backward "^[")
+	   (backward-char 1)
+	   (smalltalk--smie-exp-p)))  ;; is it an exp or method body?
+  (beginning-of-line)                 ;; assming the method header is one line
+  (skip-chars-forward smalltalk-whitespace))
+
+(defun smalltalk-goto-defun-end ()
+  "Move forward to next end of defun.
+   FIXME: This version assumes gst3 syntax"
+  (interactive)
+  (let ((pos (point)))
+    (smalltalk-goto-defun-start)
+    (skip-chars-forward "^[")           ;; assuming the method has a [
+    (forward-sexp)
+    (unless (>= (point) pos)             ;; make sure we are making forward progress
+      (skip-chars-forward "^[")
+      (forward-sexp))))
 
 ;;;; ---[ SMIE support ]------------------------------------------------
 
@@ -537,7 +559,10 @@ Commands:
   (set (make-local-variable 'parse-sexp-ignore-comments) t)
   (set (make-local-variable 'syntax-propertize-function)
        smalltalk--syntax-propertize)
-  
+  (set (make-local-variable 'beginning-of-defun-function)
+       #'smalltalk-goto-defun-start)
+  (set (make-local-variable 'end-of-defun-function)
+       #'smalltalk-goto-defun-end)
   ;; font-locking
   (set (make-local-variable 'font-lock-defaults)
        '((smalltalk-font-lock-keywords
