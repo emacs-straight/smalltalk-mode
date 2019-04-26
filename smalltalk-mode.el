@@ -31,6 +31,8 @@
 ;; - Syntax-aware navigation.
 ;; - Code templates.
 ;; - Interacting with an Smalltalk REPL from within the source code.
+;; - Support for prettify-symbols-mode.
+;; - defun navigation.
 
 ;;; Old History:
 
@@ -142,15 +144,13 @@ Requires Emacs≥23.3."
     (define-key keymap "\C-c\C-n"   'smalltalk-goto-next-keyword)
     (define-key keymap "\C-c\C-t"      smalltalk-template-map)
     ;; the following four are NOT deprecated
-    ;; FIXME: Set `beginning-of-defun-function' instead!
-    ;; FIXME: Set `end-of-defun-function' instead!
     (unless smalltalk-use-smie
       (define-key keymap "\C-\M-a"   'smalltalk-begin-of-defun)
       (define-key keymap "\C-\M-e"   'smalltalk-end-of-defun)
       (define-key keymap "\C-\M-f"   'smalltalk-forward-sexp)
       (define-key keymap "\C-\M-b"   'smalltalk-backward-sexp))
     ;; FIXME: Use post-self-insert-hook!
-    ;; (define-key keymap "!" 	   'smalltalk-bang)
+    (define-key keymap "!" 	   'smalltalk-bang)
     ;; `electric-indent-local-mode' was added when we changed
     ;; `electric-indent-mode' to be enabled by default, in which case we'll get
     ;; the same result as `smalltalk-colon' via electric-indent-chars.
@@ -269,30 +269,50 @@ Also matches the assignment operator (in submatch 1).")
                  (string-to-syntax ".")))))))
      )))
 
-(defun smalltalk-goto-defun-start ()
-  "Move backward to the beginning of a defun.
+(defun smalltalk--goto-defun-start (arg)
+  "Move to the beginning of a defun.
 
 If search is successful, return t; point ends up at the beginning
-of the line where the search succeeded.  Otherwise, return nil.
-FIXME: This version assumes gst3 syntax"
-  (interactive)
-  (while (progn
-	   (skip-chars-backward "^[")
-	   (backward-char 1)
-	   (smalltalk--smie-exp-p)))  ;; is it an exp or method body?
-  (beginning-of-line)                 ;; assming the method header is one line
-  (skip-chars-forward smalltalk-whitespace))
+of the line where the search succeeded.  Otherwise, return nil."
+  (if (< arg 0)
+      (progn
+        (while (and
+	        (re-search-forward "[[!]" nil 'move)
+	        (or (nth 8 (syntax-ppss)) ;False positive within string/comment.
+                    (and (eq (char-before) ?\[)
+                         ;; Check if it's a defun or a mere block.
+                         (save-excursion
+                           (forward-char -1)
+                           (smalltalk--smie-exp-p)))
+                    (< (setq arg (1+ arg)) 0)     ;Skip N times.
+                    )))
+        (forward-char -1))
+    (forward-comment (- (point)))
+    (if (eq (char-before) ?!) (forward-char -1))
+    (while (and
+	    (re-search-backward "[[!]" nil 'move)
+	    (or (nth 8 (syntax-ppss))     ;False positive within string/comment.
+                (and (eq (char-after) ?\[)
+                     (smalltalk--smie-exp-p)) ;Not a defun but a mere block.
+                (> (setq arg (1- arg)) 0)     ;Skip N times.
+                ))))
+  (pcase (char-after)
+    (`?\[ (smalltalk--smie-begin-def))
+    (`?! (forward-char 1)
+         (forward-comment (point-max)))))
 
-(defun smalltalk-goto-defun-end ()
-  "Move forward to next end of defun.
-   FIXME: This version assumes gst3 syntax"
-  (interactive)
+(defun smalltalk--goto-defun-end ()
+  "Move forward to end of defun at point."
+  ;; We can presume that we're at position returned by
+  ;; `smalltalk--goto-defun-start'.
   (let ((pos (point)))
-    (smalltalk-goto-defun-start)
-    (skip-chars-forward "^[")           ;; assuming the method has a [
-    (forward-sexp)
-    (unless (>= (point) pos)             ;; make sure we are making forward progress
-      (skip-chars-forward "^[")
+    (forward-comment (- (point)))
+    (if (eq (char-before) ?!)
+        (smie-forward-sexp "!")
+      (goto-char pos)
+      (while (and (search-forward "[" nil t)
+	          (nth 8 (syntax-ppss)))) ;; ignote string/comment
+      (backward-char 1)
       (forward-sexp))))
 
 ;;;; ---[ SMIE support ]------------------------------------------------
@@ -560,9 +580,9 @@ Commands:
   (set (make-local-variable 'syntax-propertize-function)
        smalltalk--syntax-propertize)
   (set (make-local-variable 'beginning-of-defun-function)
-       #'smalltalk-goto-defun-start)
+       #'smalltalk--goto-defun-start)
   (set (make-local-variable 'end-of-defun-function)
-       #'smalltalk-goto-defun-end)
+       #'smalltalk--goto-defun-end)
   ;; font-locking
   (set (make-local-variable 'font-lock-defaults)
        '((smalltalk-font-lock-keywords
