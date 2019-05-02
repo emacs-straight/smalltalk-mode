@@ -557,7 +557,7 @@ Commands:
        #'smalltalk-indent-line)
   (when (boundp 'electric-indent-chars)
     ;; Instead of `smalltalk-colon'.
-    (add-to-list 'electric-indent-chars ?\:))
+    (add-to-list (make-local-variable 'electric-indent-chars) ?\:))
 
   (when (and smalltalk-use-smie (fboundp 'smie-setup))
     (smie-setup smalltalk--smie-grammar #'smalltalk--smie-rules
