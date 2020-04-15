@@ -1,9 +1,9 @@
 ;;; smalltalk-mode.el --- Major mode for the GNU Smalltalk programming language  -*- lexical-binding:t -*-
 
 ;; Author: Steve Byrne
-;; Maintainer: Derek Zhou <derek@shannon-data.com>
+;; Maintainer: Derek Zhou <derek@3qin.us>
 ;; Version: 3.2.92
-;; Copyright 1988-2019  Free Software Foundation, Inc.
+;; Copyright 1988-2020  Free Software Foundation, Inc.
 
 ;; This file is part of GNU Smalltalk.
 
