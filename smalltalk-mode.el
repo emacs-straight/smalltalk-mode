@@ -2,8 +2,8 @@
 
 ;; Author: Steve Byrne
 ;; Maintainer: Derek Zhou <derek@3qin.us>
-;; Version: 3.2.92
-;; Copyright 1988-2020  Free Software Foundation, Inc.
+;; Version: 4.0
+;; Copyright 1988-2021  Free Software Foundation, Inc.
 
 ;; This file is part of GNU Smalltalk.
 
@@ -38,6 +38,13 @@
 
 ;; Incorporates Frank Caggiano's changes for Emacs 19.
 ;; Updates and changes for Emacs 20 and 21 by David Forster
+
+;;; News
+
+;; New in 4.0:
+;; - Completely rewritten indentation code, which now relies on SMIE
+;; - Support for `prettify-symbols-mode'
+;; - Use `electric-indent-mode'
 
 ;;; Code:
 
@@ -352,10 +359,11 @@ of the line where the search succeeded.  Otherwise, return nil."
              ("<" id ">")              ;Meta info like `comment' and `category'
              (exp "!" exp)             ;GNU Smalltalk extension
              (id ":=" exp)             ;Assignment
+             (id "_" exp)             ;Assignment
              (exp ";" exp)             ;Message cascading
              (exp "\n" exp)            ;Separator for bang method header
              (exp "." exp)))           ;Separate instructions
-      '((assoc "!") (assoc "|") (assoc "." "\n") (noassoc ":=" "^")
+      '((assoc "!") (assoc "|") (assoc "." "\n") (noassoc ":=" "_" "^")
         (assoc ";") (assoc "kw-sel" "bin-sel"))))))
 
 (defconst smalltalk--smie-id-re
@@ -453,7 +461,7 @@ of the line where the search succeeded.  Otherwise, return nil."
   "Return non-nil if the thing at point is allowed to be an /expr/."
   (save-excursion
     (pcase (smalltalk--smie-backward-token)
-      ((or `"bin-sel" `"kw-sel" ":=" `"." `"^" `"!" "|")
+      ((or `"bin-sel" `"kw-sel" ":=" "_" `"." `"^" `"!" "|")
        t)
       ((or `"|-open" `";" `"lit-symbol" "lit-number") nil)
       ;;`""' means we bumped into a paren or a string.
@@ -475,7 +483,7 @@ of the line where the search succeeded.  Otherwise, return nil."
     (`(:elem . basic) smalltalk-indent-amount)
     (`(:after . "|") 0)
     (`(:after . ">") 0)                 ;Indentation after a pragma.
-    (`(:after . ":=") smalltalk-indent-amount)
+    (`(:after . ,(or ":=" "_")) smalltalk-indent-amount)
     (`(:after . "\n") (if (smie-rule-parent-p "!") ;GST2 method header separator
                           smalltalk-indent-amount))
     (`(:after . ";")
@@ -534,6 +542,7 @@ of the line where the search succeeded.  Otherwise, return nil."
 
 (defvar smalltalk-prettify-symbols-alist
   '(("^" . ?↑)
+    ("_" . ?←)
     (":=" . ?←)))
 
 ;;;; ---[ Interactive functions ]---------------------------------------
