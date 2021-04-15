@@ -4,6 +4,7 @@
 ;; Maintainer: Derek Zhou <derek@3qin.us>
 ;; Version: 4.0
 ;; Copyright 1988-2021  Free Software Foundation, Inc.
+;; Old-URL: git://git.sv.gnu.org/smalltalk
 
 ;; This file is part of GNU Smalltalk.
 
@@ -39,7 +40,7 @@
 ;; Incorporates Frank Caggiano's changes for Emacs 19.
 ;; Updates and changes for Emacs 20 and 21 by David Forster
 
-;;; News
+;;; News:
 
 ;; New in 4.0:
 ;; - Completely rewritten indentation code, which now relies on SMIE
