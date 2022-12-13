@@ -656,7 +656,7 @@ Commands:
 	(forward-char 1))
     (smalltalk-forward-whitespace)
     ;; check to see if we were already at the start of a method
-    ;; in which case, the semantics are to go to the one preceeding
+    ;; in which case, the semantics are to go to the one preceding
     ;; this one
     (if (and (= here (point))
 	     (/= start (point-min)))
@@ -971,7 +971,7 @@ expressions."
 	      (beginning-of-line)
 	      (setq state (smalltalk-parse-sexp-and-narrow-to-paren))
 	      (smalltalk-backward-whitespace)
-	      (cond ((bobp)		;must be first statment in block or exp
+	      (cond ((bobp)		;must be first statement in block or exp
 		     (if (nth 1 state)	;we're in a paren exp
 			 (if (looking-at "$")
 			     ;; block with no statements, indent by 4
