@@ -19,11 +19,11 @@
 ;; for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
-;; Major mode to edit GNU Smalltalk code (http://smalltalk.gnu.org/)
+;; Major mode to edit GNU Smalltalk code (https://smalltalk.gnu.org/)
 ;; and interact with an inferior GST interactive session.
 
 ;; Provides the usual functionality:
